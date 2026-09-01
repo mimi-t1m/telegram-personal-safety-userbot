@@ -1,0 +1,17 @@
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.git
+.gitignore
+.env
+.env.*
+.DS_Store
+*.session
+*.session-journal
+*.session-wal
+coverage/
+dist/
+tests/
+test-analyzer.ts
+*.md

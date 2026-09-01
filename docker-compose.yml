@@ -1,0 +1,14 @@
+services:
+  telegram-safety-userbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: telegram-safety-userbot
+    restart: unless-stopped
+    stdin_open: true  # Required for interactive login (phone number, code, 2FA)
+    tty: true         # Required for terminal interface
+    env_file:
+      - .env
+    volumes:
+      # Mount .env so the generated TELEGRAM_SESSION_STRING is persisted on the host
+      - ./.env:/app/.env
