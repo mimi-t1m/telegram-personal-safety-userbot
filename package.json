@@ -1,0 +1,25 @@
+{
+  "name": "telegram-personal-safety-userbot",
+  "version": "1.0.0",
+  "description": "24/7 Telegram Personal Account Safety, Anti-Ban & Compliance Shield (GramJS MTProto)",
+  "main": "src/userbot/userbot.ts",
+  "scripts": {
+    "start": "tsx src/userbot/userbot.ts",
+    "userbot": "tsx src/userbot/userbot.ts",
+    "build": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:local": "tsx test-analyzer.ts"
+  },
+  "dependencies": {
+    "input": "^1.0.1",
+    "telegram": "^2.26.22"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  },
+  "private": true
+}
