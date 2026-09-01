@@ -1,14 +1,19 @@
 import { ContentAnalyzer } from '../policy/analyzer';
 import { AnalysisResult } from '../policy/rules';
 
+export interface UserbotProcessOptions {
+  isForward?: boolean;
+}
+
 export interface UserbotProcessResult {
   shouldHandle: boolean;
   isSafe: boolean;
-  action: 'IGNORE' | 'PASS_UNTOUCHED' | 'EDIT_TO_SAFE' | 'BLOCK_AND_WARN' | 'RELAY_SEND' | 'LIST_GROUPS';
+  action: 'IGNORE' | 'PASS_UNTOUCHED' | 'EDIT_TO_SAFE' | 'BLOCK_AND_WARN' | 'DELETE_AND_NOTIFY' | 'RELAY_SEND' | 'LIST_GROUPS';
   originalQuery: string;
   processedText: string;
   cleanedText?: string;
   target?: string;
+  isForward?: boolean;
   analysis?: AnalysisResult;
 }
 
@@ -18,8 +23,10 @@ export class UserbotHandler {
   /**
    * Evaluates outgoing messages sent by the account.
    * Inspects all outgoing messages automatically (no prefix required).
+   * Supports forwarded messages by issuing DELETE_AND_NOTIFY when violations are found.
    */
-  static processOutgoingMessage(rawText: string): UserbotProcessResult {
+  static processOutgoingMessage(rawText: string, options?: UserbotProcessOptions): UserbotProcessResult {
+    const isForward = options?.isForward ?? false;
     const trimmed = rawText ? rawText.trim() : '';
     if (!trimmed) {
       return {
@@ -145,7 +152,30 @@ export class UserbotHandler {
       };
     }
 
-    // Risky content / violation detected - automatically block and warn
+    // If the message is a Forward, Telegram MTProto does not allow edits -> must DELETE & NOTIFY
+    if (isForward) {
+      const flaggedSnippets = analysis.violations
+        .map((v) => (v.matchedSnippet ? `"${v.matchedSnippet}" (${v.title})` : v.title))
+        .join(', ');
+
+      const forwardAlertMessage =
+        `🚨 [FORWARD INTERCEPTED & DELETED - Risk: ${analysis.riskScore}%]\n` +
+        `Violations: ${flaggedSnippets}\n\n` +
+        `💡 Safe Version Available:\n${analysis.cleanedText}`;
+
+      return {
+        shouldHandle: true,
+        isSafe: false,
+        isForward: true,
+        action: 'DELETE_AND_NOTIFY',
+        originalQuery: query,
+        processedText: forwardAlertMessage,
+        cleanedText: analysis.cleanedText,
+        analysis,
+      };
+    }
+
+    // Direct message violation detected -> block and overwrite with warning
     const flaggedSnippets = analysis.violations
       .map((v) => (v.matchedSnippet ? `"${v.matchedSnippet}" (${v.title})` : v.title))
       .join(', ');
@@ -158,6 +188,7 @@ export class UserbotHandler {
     return {
       shouldHandle: true,
       isSafe: false,
+      isForward: false,
       action: 'BLOCK_AND_WARN',
       originalQuery: query,
       processedText: warningMessage,

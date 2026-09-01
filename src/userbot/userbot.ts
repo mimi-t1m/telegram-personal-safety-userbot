@@ -11,18 +11,22 @@ import * as path from 'path';
 function loadEnv(): Record<string, string> {
   const envPath = path.resolve(process.cwd(), '.env');
   const env: Record<string, string> = {};
-  if (fs.existsSync(envPath)) {
-    const lines = fs.readFileSync(envPath, 'utf-8').split('\n');
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const idx = trimmed.indexOf('=');
-      if (idx !== -1) {
-        const key = trimmed.slice(0, idx).trim();
-        const val = trimmed.slice(idx + 1).trim();
-        env[key] = val;
+  try {
+    if (fs.existsSync(envPath) && fs.statSync(envPath).isFile()) {
+      const lines = fs.readFileSync(envPath, 'utf-8').split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const idx = trimmed.indexOf('=');
+        if (idx !== -1) {
+          const key = trimmed.slice(0, idx).trim();
+          const val = trimmed.slice(idx + 1).trim();
+          env[key] = val;
+        }
       }
     }
+  } catch (err) {
+    // Gracefully ignore if .env cannot be read (e.g. running purely with container environment variables)
   }
   return env;
 }
@@ -66,19 +70,25 @@ async function startUserbot() {
 
   console.log('\n✅ Successfully logged into your Telegram account!');
   const savedSession = client.session.save() as unknown as string;
+  console.log('\n🔑 TELEGRAM_SESSION_STRING:');
+  console.log(savedSession);
+  console.log('----------------------------------------------------');
 
-  // Save session string into .env for automatic future logins
+  // Save session string into .env for automatic future logins if .env is a valid file
   try {
     const envPath = path.resolve(process.cwd(), '.env');
-    let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
-    if (!envContent.includes('TELEGRAM_SESSION_STRING=')) {
-      envContent += `\nTELEGRAM_SESSION_STRING=${savedSession}\n`;
-    } else {
-      envContent = envContent.replace(/TELEGRAM_SESSION_STRING=.*/, `TELEGRAM_SESSION_STRING=${savedSession}`);
+    if (!fs.existsSync(envPath) || fs.statSync(envPath).isFile()) {
+      let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
+      if (!envContent.includes('TELEGRAM_SESSION_STRING=')) {
+        envContent += `\nTELEGRAM_SESSION_STRING=${savedSession}\n`;
+      } else {
+        envContent = envContent.replace(/TELEGRAM_SESSION_STRING=.*/, `TELEGRAM_SESSION_STRING=${savedSession}`);
+      }
+      fs.writeFileSync(envPath, envContent, 'utf-8');
+      console.log('💾 Session string auto-saved to .env file.');
     }
-    fs.writeFileSync(envPath, envContent, 'utf-8');
   } catch (err) {
-    console.warn('Could not auto-save session string to .env:', err);
+    console.warn('Could not auto-save session string to .env file:', err);
   }
 
   const me = await client.getMe();
@@ -111,20 +121,68 @@ async function startUserbot() {
   // Listen for all messages sent by YOU
   client.addEventHandler(async (event: NewMessageEvent) => {
     const message = event.message;
-    if (!message || !message.text) return;
+    if (!message) return;
 
     // Check if the message is from yourself
     const senderIdStr = message.senderId ? message.senderId.toString() : '';
     const isFromMe = message.out || senderIdStr === myIdStr;
     if (!isFromMe) return;
 
-    const rawText = message.text.trim();
-    const result = UserbotHandler.processOutgoingMessage(rawText);
+    const rawText = (message.text || message.message || '').trim();
+    if (!rawText) return;
+
+    // Check if the message is a Forward
+    const isForward = Boolean(message.fwdFrom || (message as any).forward);
+
+    const result = UserbotHandler.processOutgoingMessage(rawText, { isForward });
     if (!result.shouldHandle) return;
 
-    // Case 1: Message is 100% safe (Sent normally without prefix) -> Pass untouched!
+    // Case 1: Message is 100% safe -> Pass untouched!
     if (result.action === 'PASS_UNTOUCHED') {
-      console.log(`[PASS] Safe message sent: "${rawText.slice(0, 45)}..."`);
+      console.log(`[PASS] Safe message (${isForward ? 'Forward' : 'Direct'}): "${rawText.slice(0, 45)}..."`);
+      return;
+    }
+
+    // Case 1b: Risky Forwarded Message -> Instant Delete for everyone + Alert to Saved Messages
+    if (result.action === 'DELETE_AND_NOTIFY') {
+      try {
+        console.warn(`[INTERCEPT] Deleting violating forwarded message (ID: ${message.id})...`);
+        
+        // 1. Delete message immediately for all participants
+        await client.deleteMessages(message.peerId, [message.id], { revoke: true });
+
+        // 2. Resolve destination chat title
+        let chatTitle = 'Unknown Chat';
+        try {
+          const entity: any = await client.getEntity(message.peerId);
+          chatTitle = entity.title || entity.username || `${entity.firstName || ''} ${entity.lastName || ''}`.trim() || 'Private Chat';
+        } catch {
+          chatTitle = 'Target Chat';
+        }
+
+        // 3. Format detailed alert report
+        const flaggedList = result.analysis?.violations
+          .map((v) => `• <b>${v.title}</b>: <code>${v.matchedSnippet || 'Pattern matched'}</code>`)
+          .join('\n') || '• Privacy/Policy violation';
+
+        const alertReport =
+          `🚨 <b>[FORWARDED MESSAGE INTERCEPTED & DELETED]</b>\n\n` +
+          `📍 <b>Destination Chat:</b> <code>${chatTitle}</code>\n` +
+          `⚠️ <b>Risk Score:</b> <code>${result.analysis?.riskScore}%</code>\n\n` +
+          `🛡️ <b>Violations Detected:</b>\n${flaggedList}\n\n` +
+          `📝 <b>Blocked Message Snippet:</b>\n<code>${rawText.slice(0, 250)}${rawText.length > 250 ? '...' : ''}</code>\n\n` +
+          `🔒 <i>The message was permanently deleted for all members in &lt;50ms to protect your account.</i>`;
+
+        // 4. Send safety report to your Saved Messages ('me')
+        await client.sendMessage('me', {
+          message: alertReport,
+          parseMode: 'html',
+        });
+
+        console.log(`[DELETED] Successfully revoked violating forward in "${chatTitle}" and sent safety report to Saved Messages.`);
+      } catch (err) {
+        console.error('Failed to delete violating forwarded message:', err);
+      }
       return;
     }
 

@@ -1,14 +1,20 @@
 services:
   telegram-safety-userbot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: telegram-safety-userbot
+    image: ${DOCKER_IMAGE:-telegram-safety-userbot:latest}
+    container_name: ${CONTAINER_NAME:-telegram-safety-userbot}
     restart: unless-stopped
-    stdin_open: true  # Required for interactive login (phone number, code, 2FA)
-    tty: true         # Required for terminal interface
-    env_file:
-      - .env
-    volumes:
-      # Mount .env so the generated TELEGRAM_SESSION_STRING is persisted on the host
-      - ./.env:/app/.env
+    stdin_open: true
+    tty: true
+
+    environment:
+      # Telegram MTProto Credentials
+      - TELEGRAM_API_ID=${TELEGRAM_API_ID}
+      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
+      - TELEGRAM_SESSION_STRING=${TELEGRAM_SESSION_STRING:-}
+
+      # Optional AI Contextual checking
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - ENABLE_AI_CHECK=${ENABLE_AI_CHECK:-false}
+
+      # Runtime environment
+      - NODE_ENV=production

@@ -2,7 +2,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7+-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-22+-green.svg)](https://nodejs.org/)
-[![Vitest](https://img.shields.io/badge/Tests-52%20Passing-brightgreen.svg)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/Tests-72%20Passing-brightgreen.svg)](https://vitest.dev/)
 [![Telegram](https://img.shields.io/badge/MTProto-GramJS-2CA5E0.svg)](https://telegram.org/)
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 
@@ -17,7 +17,12 @@ All messages are sent **directly from your personal profile** with **ZERO `via @
 * **⚡ Zero-Prefix Automatic Shield**:
   * Passively monitors all outgoing messages in real-time.
   * **Safe messages**: Sent normally with **0 delay and 0 edits** (no "edited" badge).
-  * **Risky messages**: Intercepted in $< 50$ms and replaced with an alert and safe rewrite before anyone can report your account.
+  * **Risky direct messages**: Intercepted in $< 50$ms and replaced with an alert and safe rewrite before anyone can report your account.
+
+* **🗑️ Forwarded Message Auto-Delete & Privacy Shield**:
+  * Passively detects outgoing **forwarded messages** containing privacy/policy violations (seed phrases, credit cards, credentials, phishing links, etc.).
+  * Since Telegram MTProto forbids editing forwarded messages, the userbot **immediately revokes and deletes the forwarded message for all participants** ($< 50$ms).
+  * Automatically sends a detailed violation report to your private **"Saved Messages"** so you know what was intercepted and why.
 
 * **🔒 Private Sandbox Relay (100% Zero-Exposure)**:
   * Use your private **"Saved Messages"** as a test sandbox.
@@ -28,7 +33,7 @@ All messages are sent **directly from your personal profile** with **ZERO `via @
   * Cross-referenced against **[telegram.org/safety](https://telegram.org/safety)**, official **Telegram Terms of Service**, **Telegram Privacy Policy**, and **`@SpamBot` case studies**.
 
 * **🧪 100% Test-Driven Quality**:
-  * Full test coverage with **52 automated unit tests** in Vitest.
+  * Full test coverage with **72 automated unit tests** in Vitest.
 
 ---
 
@@ -157,23 +162,55 @@ npm run build
 
 ---
 
-## ☁️ 24/7 Cloud Deployment (AWS Lightsail / PM2)
+## ☁️ 24/7 Cloud & Docker Deployment
 
-To keep your Userbot running 24/7/365 in the cloud:
+### 1. Docker & Docker Compose (Recommended)
 
-1. **AWS Lightsail VPS** (Recommended - $3.50/mo with 3 months free trial):
+1. **Create your environment file (e.g. `custom.env` or `.env`)**:
+   ```env
+   DOCKER_IMAGE=yourusername/telegram-safety-userbot:latest
+   TELEGRAM_API_ID=12345678
+   TELEGRAM_API_HASH=abcdef1234567890abcdef
+   TELEGRAM_SESSION_STRING=
+   ```
+
+2. **First-time login (interactive)**:
    ```bash
-   sudo apt update && sudo apt install -y nodejs npm git
-   sudo npm install -g pm2
-   pm2 start npm --name "telegram-userbot" -- run userbot
-   pm2 startup && pm2 save
+   docker compose --env-file custom.env -f docker-compose.yml run --rm telegram-safety-userbot
    ```
 
-2. **Local PC Background**:
-   ```powershell
-   npm install -g pm2
-   pm2 start tsx --name "telegram-userbot" -- src/userbot/userbot.ts
+3. **Start 24/7 in background**:
+   ```bash
+   docker compose --env-file custom.env -f docker-compose.yml up -d
    ```
+
+4. **View logs**:
+   ```bash
+   docker compose --env-file custom.env -f docker-compose.yml logs -f
+   ```
+
+5. **Stop container**:
+   ```bash
+   docker compose --env-file custom.env -f docker-compose.yml down
+   ```
+
+---
+
+### 2. AWS Lightsail VPS (PM2)
+```bash
+sudo apt update && sudo apt install -y nodejs npm git
+sudo npm install -g pm2
+pm2 start npm --name "telegram-userbot" -- run userbot
+pm2 startup && pm2 save
+```
+
+---
+
+### 3. Local PC Background (PM2)
+```powershell
+npm install -g pm2
+pm2 start tsx --name "telegram-userbot" -- src/userbot/userbot.ts
+```
 
 ---
 

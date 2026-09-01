@@ -48,4 +48,30 @@ describe('Telegram MTProto Userbot - Zero-Prefix Automatic Detection', () => {
     expect(result.shouldHandle).toBe(true);
     expect(result.action).toBe('LIST_GROUPS');
   });
+
+  it('passes safe forwarded messages untouched', () => {
+    const forwardText = 'Forwarded announcement: Happy New Year everyone!';
+    const result = UserbotHandler.processOutgoingMessage(forwardText, { isForward: true });
+    expect(result.shouldHandle).toBe(true);
+    expect(result.isSafe).toBe(true);
+    expect(result.action).toBe('PASS_UNTOUCHED');
+  });
+
+  it('triggers DELETE_AND_NOTIFY when a forwarded message contains privacy violations (e.g. seed phrase / credentials)', () => {
+    const violatingForward = 'Here is my seed phrase: apple banana cherry dog elephant fox grape horse igloo jaguar kangaroo lion';
+    const result = UserbotHandler.processOutgoingMessage(violatingForward, { isForward: true });
+    expect(result.shouldHandle).toBe(true);
+    expect(result.isSafe).toBe(false);
+    expect(result.isForward).toBe(true);
+    expect(result.action).toBe('DELETE_AND_NOTIFY');
+    expect(result.processedText).toContain('🚨 [FORWARD INTERCEPTED & DELETED');
+  });
+
+  it('triggers DELETE_AND_NOTIFY when a forwarded message contains bot token or dangerous link', () => {
+    const violatingForward = 'Check this bot token: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz and link https://bit.ly/claim';
+    const result = UserbotHandler.processOutgoingMessage(violatingForward, { isForward: true });
+    expect(result.shouldHandle).toBe(true);
+    expect(result.isSafe).toBe(false);
+    expect(result.action).toBe('DELETE_AND_NOTIFY');
+  });
 });

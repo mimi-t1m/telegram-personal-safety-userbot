@@ -32,7 +32,7 @@ export const TELEGRAM_RULES: RuleDefinition[] = [
     id: 'mock-test-issue',
     category: 'SPAM',
     severity: 'HIGH',
-    title: 'Simulated Test Issue (Cảnh báo kiểm tra thử)',
+    title: 'Simulated Test Issue',
     regex: /(test\s+lỗi\s+từ|test\s+incorrect\s+word)/i,
     reason: 'Đây là từ khoá giả lập để bạn kiểm tra tính năng phát hiện vi phạm và tự động sửa câu.',
     recommendation: 'Xoá hoặc thay thế từ này để vượt qua kiểm tra an toàn.',
