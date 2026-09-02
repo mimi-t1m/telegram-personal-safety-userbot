@@ -57,6 +57,31 @@ let nextApprovalId = 1;
 const pendingApprovals = new Map<number, PendingRedaction>();
 const notificationToApprovalMap = new Map<number, number>(); // notificationMsgId -> approvalId
 
+/**
+ * Auto-deletes temporary interaction messages in Saved Messages ('me') after delayMs (default 20 seconds).
+ * Cleans up:
+ * 1. The original safety warning notification message
+ * 2. The user's approval command message (e.g. /approve_1 ...)
+ * 3. The final approval confirmation message
+ */
+function scheduleSavedMessagesCleanup(
+  client: TelegramClient,
+  msgIds: (number | undefined)[],
+  delayMs = 20000
+) {
+  const validIds = msgIds.filter((id): id is number => typeof id === 'number' && id > 0);
+  if (validIds.length === 0) return;
+
+  setTimeout(async () => {
+    try {
+      await client.deleteMessages('me', validIds, { revoke: true });
+      console.log(`[CLEANUP] Auto-deleted ${validIds.length} messages in Saved Messages after ${delayMs / 1000}s.`);
+    } catch (err) {
+      console.warn(`[CLEANUP] Failed to auto-delete messages in Saved Messages:`, err);
+    }
+  }, delayMs);
+}
+
 async function startUserbot() {
   console.log('====================================================');
   console.log('🛡️ Telegram 24/7 Automatic Safety Shield (GramJS MTProto)');
@@ -182,10 +207,13 @@ async function startUserbot() {
           text: resolution.text,
         });
 
-        await client.sendMessage('me', {
-          message: `✅ <b>Approved #${approvalId}!</b> Message in <code>${pending.chatTitle}</code> updated to:\n\n<code>${resolution.text}</code>`,
+        const confirmMsg = await client.sendMessage('me', {
+          message: `✅ <b>Approved #${approvalId}!</b> Message in <code>${pending.chatTitle}</code> updated to:\n\n<code>${resolution.text}</code>\n\n⏱️ <i>All approval logs in Saved Messages will auto-delete in 20 seconds.</i>`,
           parseMode: 'html',
         });
+
+        // Auto-delete warning notification, user approve command, and confirmation message after 20s
+        scheduleSavedMessagesCleanup(client, [pending.notificationMsgId, message.id, confirmMsg?.id], 20000);
 
         pendingApprovals.delete(approvalId);
         if (pending.notificationMsgId) {
@@ -231,10 +259,13 @@ async function startUserbot() {
           text: resolution.text,
         });
 
-        await client.sendMessage('me', {
-          message: `✅ <b>Approved #${latestId}!</b> Message in <code>${pending.chatTitle}</code> updated to:\n\n<code>${resolution.text}</code>`,
+        const confirmMsg = await client.sendMessage('me', {
+          message: `✅ <b>Approved #${latestId}!</b> Message in <code>${pending.chatTitle}</code> updated to:\n\n<code>${resolution.text}</code>\n\n⏱️ <i>All approval logs in Saved Messages will auto-delete in 20 seconds.</i>`,
           parseMode: 'html',
         });
+
+        // Auto-delete warning notification, user approve command, and confirmation message after 20s
+        scheduleSavedMessagesCleanup(client, [pending.notificationMsgId, message.id, confirmMsg?.id], 20000);
 
         pendingApprovals.delete(latestId);
         if (pending.notificationMsgId) {
@@ -277,10 +308,13 @@ async function startUserbot() {
             text: resolution.text,
           });
 
-          await client.sendMessage('me', {
-            message: `✅ <b>Approved #${approvalId}!</b> Message in <code>${pending.chatTitle}</code> updated to:\n\n<code>${resolution.text}</code>`,
+          const confirmMsg = await client.sendMessage('me', {
+            message: `✅ <b>Approved #${approvalId}!</b> Message in <code>${pending.chatTitle}</code> updated to:\n\n<code>${resolution.text}</code>\n\n⏱️ <i>All approval logs in Saved Messages will auto-delete in 20 seconds.</i>`,
             parseMode: 'html',
           });
+
+          // Auto-delete warning notification, user reply, and confirmation message after 20s
+          scheduleSavedMessagesCleanup(client, [pending.notificationMsgId, message.id, confirmMsg?.id], 20000);
 
           pendingApprovals.delete(approvalId);
           notificationToApprovalMap.delete(replyToId);
