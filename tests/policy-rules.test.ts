@@ -8,14 +8,14 @@ describe('Telegram Policy Rules & Anti-Ban Heuristics (Comprehensive Official Co
       const result = ContentAnalyzer.analyzeLocally('Đây là câu có chứa test lỗi từ cần kiểm tra');
       expect(result.isSafe).toBe(false);
       expect(result.violations.some((v) => v.id === 'mock-test-issue')).toBe(true);
-      expect(result.cleanedText).toContain('[TỪ ĐÃ ĐƯỢC SỬA]');
+      expect(result.cleanedText).toContain('[CORRECTED_WORD]');
     });
 
     it('flags "test incorrect word" as simulated policy violation and cleans it', () => {
       const result = ContentAnalyzer.analyzeLocally('This message has a test incorrect word for verification');
       expect(result.isSafe).toBe(false);
       expect(result.violations.some((v) => v.id === 'mock-test-issue')).toBe(true);
-      expect(result.cleanedText).toContain('[CORRECTED WORD]');
+      expect(result.cleanedText).toContain('[CORRECTED_WORD]');
     });
   });
 
@@ -58,21 +58,21 @@ describe('Telegram Policy Rules & Anti-Ban Heuristics (Comprehensive Official Co
       const result = ContentAnalyzer.analyzeLocally(`My wallet phrase is: ${phrase}`);
       expect(result.riskScore).toBeGreaterThanOrEqual(60);
       expect(result.isSafe).toBe(false);
-      expect(result.cleanedText).toContain('[REDACTED_CONFIDENTIAL]');
+      expect(result.cleanedText).toContain('[REDACTED_SEED_PHRASE]');
     });
 
     it('detects Telegram login OTP codes and redacts them', () => {
       const result = ContentAnalyzer.analyzeLocally('Your login code: 92837');
       expect(result.riskScore).toBeGreaterThanOrEqual(60);
       expect(result.isSafe).toBe(false);
-      expect(result.cleanedText).toContain('[REDACTED_CONFIDENTIAL]');
+      expect(result.cleanedText).toContain('[REDACTED_OTP_CODE]');
     });
 
     it('detects credit card numbers and redacts them', () => {
       const result = ContentAnalyzer.analyzeLocally('Send payment to card 4532015012345678');
       expect(result.isSafe).toBe(false);
       expect(result.violations.some((v) => v.id === 'credit-card-leakage')).toBe(true);
-      expect(result.cleanedText).toContain('[REDACTED_CONFIDENTIAL]');
+      expect(result.cleanedText).toContain('[REDACTED_CREDIT_CARD]');
     });
 
     it('detects leaked Telegram session strings / Pyrogram / Telethon string sessions', () => {

@@ -17,7 +17,7 @@ describe('Forwarded Message Privacy & Auto-Deletion Shield', () => {
       expect(result.analysis?.riskScore).toBeGreaterThanOrEqual(60);
       expect(result.processedText).toContain('🚨 [FORWARD INTERCEPTED & DELETED');
       expect(result.processedText).toContain('Seed Phrase');
-      expect(result.cleanedText).toContain('[REDACTED_CONFIDENTIAL]');
+      expect(result.cleanedText).toContain('[REDACTED_SEED_PHRASE]');
     });
 
     it('deletes forwarded message containing a Telegram Bot Token', () => {
@@ -40,7 +40,7 @@ describe('Forwarded Message Privacy & Auto-Deletion Shield', () => {
       expect(result.isSafe).toBe(false);
       expect(result.action).toBe('DELETE_AND_NOTIFY');
       expect(result.processedText).toContain('🚨 [FORWARD INTERCEPTED & DELETED');
-      expect(result.cleanedText).toContain('[REDACTED_CONFIDENTIAL]');
+      expect(result.cleanedText).toContain('[REDACTED_OTP_CODE]');
     });
 
     it('deletes forwarded message containing National ID / CCCD leak', () => {
@@ -50,7 +50,7 @@ describe('Forwarded Message Privacy & Auto-Deletion Shield', () => {
       expect(result.shouldHandle).toBe(true);
       expect(result.isSafe).toBe(false);
       expect(result.action).toBe('DELETE_AND_NOTIFY');
-      expect(result.cleanedText).toContain('[REDACTED_ID_NUMBER]');
+      expect(result.cleanedText).toContain('[REDACTED_NATIONAL_ID]');
     });
 
     it('deletes forwarded message containing credit card numbers', () => {
@@ -60,7 +60,7 @@ describe('Forwarded Message Privacy & Auto-Deletion Shield', () => {
       expect(result.shouldHandle).toBe(true);
       expect(result.isSafe).toBe(false);
       expect(result.action).toBe('DELETE_AND_NOTIFY');
-      expect(result.cleanedText).toContain('[REDACTED_CONFIDENTIAL]');
+      expect(result.cleanedText).toContain('[REDACTED_CREDIT_CARD]');
     });
 
     it('deletes forwarded message containing stolen account combo dump', () => {
@@ -84,7 +84,7 @@ describe('Forwarded Message Privacy & Auto-Deletion Shield', () => {
       expect(result.shouldHandle).toBe(true);
       expect(result.isSafe).toBe(false);
       expect(result.action).toBe('DELETE_AND_NOTIFY');
-      expect(result.processedText).toContain('bit.ly');
+      expect(result.processedText).toContain('Obfuscated / Shortened URL');
     });
 
     it('deletes forwarded fake contest / voting trap scam', () => {

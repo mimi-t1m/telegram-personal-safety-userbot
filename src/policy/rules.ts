@@ -34,8 +34,8 @@ export const TELEGRAM_RULES: RuleDefinition[] = [
     severity: 'HIGH',
     title: 'Simulated Test Issue',
     regex: /(test\s+lỗi\s+từ|test\s+incorrect\s+word)/i,
-    reason: 'Đây là từ khoá giả lập để bạn kiểm tra tính năng phát hiện vi phạm và tự động sửa câu.',
-    recommendation: 'Xoá hoặc thay thế từ này để vượt qua kiểm tra an toàn.',
+    reason: 'Simulated test keyword to verify violation detection and auto-sanitization workflows.',
+    recommendation: 'Remove or replace this test keyword to pass the safety check.',
   },
 
   // 1. Critical: Phishing & Credential Theft (ToS & Privacy Policy)
@@ -82,7 +82,7 @@ export const TELEGRAM_RULES: RuleDefinition[] = [
     category: 'SECURITY_PII',
     severity: 'CRITICAL',
     title: 'Seed Phrase / Private Key Leakage',
-    regex: /\b([a-z]{3,8}\s+){11,23}[a-z]{3,8}\b|(0x[a-fA-F0-9]{64})|\b5[HJK][1-9A-HJ-NP-Za-km-z]{49}\b/i,
+    regex: /(?:(?:seed\s+phrase|recovery\s+phrase|mnemonic|wallet\s+(?:phrase|backup|seed)|secret\s+(?:phrase|recovery)|passphrase|bip39)[\s\w:]*?([a-z]{3,8}\s+){11,23}[a-z]{3,8})|(0x[a-fA-F0-9]{64})|\b5[HJK][1-9A-HJ-NP-Za-km-z]{49}\b|\b[KL][1-9A-HJ-NP-Za-km-z]{51}\b/i,
     reason: 'Appears to contain a 12/24-word cryptocurrency mnemonic seed phrase or private key. Sharing this publicly can lead to complete loss of funds or flagged security abuse.',
     recommendation: 'Never share private keys or mnemonic recovery phrases over Telegram.',
   },

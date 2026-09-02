@@ -49,31 +49,87 @@ export class ContentAnalyzer {
             break;
         }
 
-        // Apply auto-sanitization / cleaning
+        // Apply auto-sanitization / cleaning with descriptive encrypted/redacted tags
         if (rule.id === 'mock-test-issue') {
           cleaned = cleaned
-            .replace(/test\s+lỗi\s+từ/gi, '[TỪ ĐÃ ĐƯỢC SỬA]')
-            .replace(/test\s+incorrect\s+word/gi, '[CORRECTED WORD]');
+            .replace(/test\s+lỗi\s+từ/gi, '[CORRECTED_WORD]')
+            .replace(/test\s+incorrect\s+word/gi, '[CORRECTED_WORD]');
+        } else if (rule.id === 'crypto-seed-phrase') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_SEED_PHRASE]');
+        } else if (rule.id === 'telegram-session-string-leak') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_SESSION_STRING]');
         } else if (rule.id === 'telegram-bot-token-leak') {
           cleaned = cleaned.replace(rule.regex, '[REDACTED_BOT_TOKEN]');
+        } else if (rule.id === 'otp-telegram-code') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_OTP_CODE]');
+        } else if (rule.id === 'credit-card-leakage') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_CREDIT_CARD]');
         } else if (rule.id === 'national-id-doxxing') {
-          cleaned = cleaned.replace(rule.regex, '[REDACTED_ID_NUMBER]');
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_NATIONAL_ID]');
         } else if (rule.id === 'bank-account-spam') {
           cleaned = cleaned.replace(rule.regex, '[REDACTED_BANK_ACCOUNT]');
+        } else if (rule.id === 'stealer-log-dump') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_CREDENTIALS]');
         } else if (rule.id === 'character-stretching-spam') {
           cleaned = cleaned.replace(/([A-Za-zÀ-ỹ])\1{5,}/g, '$1$1');
-        } else if (rule.category === 'SECURITY_PII') {
-          cleaned = cleaned.replace(rule.regex, '[REDACTED_CONFIDENTIAL]');
         } else if (rule.id === 'zero-width-obfuscation') {
           cleaned = cleaned.replace(rule.regex, '');
         } else if (rule.id === 'url-shortener') {
           cleaned = cleaned.replace(rule.regex, '[DIRECT_LINK_HERE]');
         } else if (rule.id === 'phishing-telegram-impersonation') {
-          cleaned = cleaned.replace(rule.regex, '[REDACTED_MALICIOUS_LINK]');
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_PHISHING_LINK]');
+        } else if (rule.id === 'voting-contest-phishing') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_VOTING_LINK]');
+        } else if (rule.id === 'fake-premium-phishing') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_FAKE_PROMO]');
+        } else if (rule.id === 'urgent-account-deletion-phishing') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_SCARE_TACTIC]');
+        } else if (rule.id === 'incitement-to-violence') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_VIOLENT_CONTENT]');
+        } else if (rule.id === 'death-threat-harassment') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_DEATH_THREAT]');
+        } else if (rule.id === 'explosives-weapons-crafting') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_WEAPON_INSTRUCTIONS]');
+        } else if (rule.id === 'blackmail-extortion') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_EXTORTION_THREAT]');
+        } else if (rule.id === 'self-harm-suicide-incitement') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_SELF_HARM]');
+        } else if (rule.id === 'terrorist-extremist-content') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_EXTREMIST_CONTENT]');
+        } else if (rule.id === 'doxxing-harassment-raid') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_DOXXING_INFO]');
+        } else if (rule.id === 'forged-documents-fake-ids') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_FORGED_DOCUMENT]');
+        } else if (rule.id === 'illicit-drugs-weapons') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_ILLICIT_GOODS]');
+        } else if (rule.id === 'telegram-impersonation') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_IMPERSONATION]');
+        } else if (rule.id === 'recovery-scam') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_RECOVERY_SCAM]');
+        } else if (rule.id === 'telegram-stars-fraud') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_STARS_EXPLOIT]');
+        } else if (rule.id === 'fake-airdrop-drainer') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_DRAINER_LINK]');
+        } else if (rule.id === 'gambling-casino-scam') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_GAMBLING_PROMO]');
+        } else if (rule.id === 'bio-redirection-spam') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_BIO_LINK]');
+        } else if (rule.id === 'check-inbox-bait') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_INBOX_BAIT]');
+        } else if (rule.id === 'external-platform-harvesting') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_EXTERNAL_INVITE]');
+        } else if (rule.id === 'aggressive-cold-outreach') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_COLD_OUTREACH]');
+        } else if (rule.id.startsWith('get-rich-quick-scam')) {
+          cleaned = cleaned.replace(rule.regex, '[REPHRASE_INVESTMENT_PROMISE]');
+        } else if (rule.id === 'piracy-copyright') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_PIRATED_CONTENT]');
+        } else if (rule.category === 'SECURITY_PII') {
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_CONFIDENTIAL]');
         } else if (rule.category === 'VIOLENCE_THREATS') {
           cleaned = cleaned.replace(rule.regex, '[REDACTED_PROHIBITED_CONTENT]');
         } else if (rule.category === 'AGGRESSIVE_OUTREACH') {
-          cleaned = cleaned.replace(rule.regex, '(happy to share info here in the group)');
+          cleaned = cleaned.replace(rule.regex, '[REDACTED_OUTREACH]');
         } else if (rule.category === 'SPAM') {
           cleaned = cleaned.replace(rule.regex, '[REPHRASE_PROMO_TEXT]');
         }

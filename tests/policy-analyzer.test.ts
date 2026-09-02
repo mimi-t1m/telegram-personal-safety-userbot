@@ -29,7 +29,7 @@ describe('ContentAnalyzer Core Logic', () => {
     const text = 'Here is the secret code: otp: 543210';
     const res = ContentAnalyzer.analyzeLocally(text);
     expect(res.cleanedText).not.toContain('543210');
-    expect(res.cleanedText).toContain('[REDACTED_CONFIDENTIAL]');
+    expect(res.cleanedText).toContain('[REDACTED_OTP_CODE]');
     expect(res.violations[0].matchedSnippet).toBeDefined();
   });
 });

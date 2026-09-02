@@ -1,9 +1,11 @@
 import { TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions';
 import { NewMessage, NewMessageEvent } from 'telegram/events';
+import { EditedMessage, EditedMessageEvent } from 'telegram/events/EditedMessage';
 // @ts-ignore
 import input from 'input';
 import { UserbotHandler } from './handler';
+import { ContentAnalyzer } from '../policy/analyzer';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -38,6 +40,22 @@ const SESSION_STRING = process.env.TELEGRAM_SESSION_STRING || env.TELEGRAM_SESSI
 
 // Cached dialogs for index shortcuts (1, 2, 3...)
 let cachedDialogs: Array<{ id: any; title: string; entity: any }> = [];
+
+// Interactive Pending Approvals Store
+interface PendingRedaction {
+  id: number;
+  peerId: any;
+  messageId: number;
+  chatTitle: string;
+  originalText: string;
+  suggestedText: string;
+  notificationMsgId?: number;
+  createdAt: number;
+}
+
+let nextApprovalId = 1;
+const pendingApprovals = new Map<number, PendingRedaction>();
+const notificationToApprovalMap = new Map<number, number>(); // notificationMsgId -> approvalId
 
 async function startUserbot() {
   console.log('====================================================');
@@ -114,12 +132,12 @@ async function startUserbot() {
   console.log('----------------------------------------------------');
   console.log('✨ You can now chat NORMALLY without typing any prefix:');
   console.log('   • Safe messages: Sent instantly as normal (zero edit badge).');
-  console.log('   • Risky messages: Automatically blocked & replaced with warning.');
+  console.log('   • Risky messages: Intercepted -> Redacted in chat -> 1-Click approval in Saved Messages.');
   console.log('   • Relay from Saved Messages: .send 1 <message> or .groups');
   console.log('----------------------------------------------------\n');
 
-  // Listen for all messages sent by YOU
-  client.addEventHandler(async (event: NewMessageEvent) => {
+  // Core Message Processor (Handles both newly sent messages and edited messages)
+  async function onMessageEvent(event: NewMessageEvent | EditedMessageEvent, isEdit = false) {
     const message = event.message;
     if (!message) return;
 
@@ -131,15 +149,180 @@ async function startUserbot() {
     const rawText = (message.text || message.message || '').trim();
     if (!rawText) return;
 
+    // Ignore messages that are our own placeholder (to prevent recursion)
+    if (rawText === '🛡️ [Message redacted by Safety Shield]') return;
+
+    // Check for interactive approval commands with optional custom text (e.g. /approve_1 newtest here, .approve 1, /apply_1)
+    const approveWithIdMatch = rawText.match(/^[/.]approve(?:_|\s+)(\d+)(?:\s+(.+))?$/i) || rawText.match(/^[/.]apply(?:_|\s+)(\d+)(?:\s+(.+))?$/i);
+    if (approveWithIdMatch) {
+      const approvalId = parseInt(approveWithIdMatch[1], 10);
+      const customWords = approveWithIdMatch[2]?.trim();
+      const pending = pendingApprovals.get(approvalId);
+      if (!pending) {
+        await client.sendMessage('me', {
+          message: `⚠️ Approval request <b>#${approvalId}</b> was not found, has expired, or was already applied.`,
+          parseMode: 'html',
+        });
+        return;
+      }
+
+      const resolution = UserbotHandler.resolveCustomReplacement(pending.suggestedText, customWords);
+      if (!resolution.isSafe) {
+        const violationsList = resolution.violations.map((v) => `• <b>${v}</b>`).join('\n');
+        await client.sendMessage('me', {
+          message: `⚠️ <b>Cannot apply custom replacement!</b>\nThe resulting message contains high-risk patterns:\n${violationsList}\n\n💡 Please provide a safe replacement word.`,
+          parseMode: 'html',
+        });
+        return;
+      }
+
+      try {
+        await client.editMessage(pending.peerId, {
+          message: pending.messageId,
+          text: resolution.text,
+        });
+
+        await client.sendMessage('me', {
+          message: `✅ <b>Approved #${approvalId}!</b> Message in <code>${pending.chatTitle}</code> updated to:\n\n<code>${resolution.text}</code>`,
+          parseMode: 'html',
+        });
+
+        pendingApprovals.delete(approvalId);
+        if (pending.notificationMsgId) {
+          notificationToApprovalMap.delete(pending.notificationMsgId);
+        }
+        console.log(`[APPROVED] Successfully applied #${approvalId} to "${pending.chatTitle}": "${resolution.text.slice(0, 40)}..."`);
+      } catch (err) {
+        console.error(`Failed to apply approval #${approvalId}:`, err);
+        await client.sendMessage('me', {
+          message: `❌ Failed to update message in <code>${pending.chatTitle}</code>: ${err instanceof Error ? err.message : String(err)}`,
+          parseMode: 'html',
+        });
+      }
+      return;
+    }
+
+    // Support standalone /approve [custom text], .approve, /apply, .apply (without ID, applies to latest pending item)
+    const genericApproveMatch = rawText.match(/^[/.]approve(?:\s+(.+))?$/i) || rawText.match(/^[/.]apply(?:\s+(.+))?$/i);
+    if (genericApproveMatch) {
+      if (pendingApprovals.size === 0) {
+        await client.sendMessage('me', {
+          message: '📋 No pending redacted messages awaiting approval.',
+        });
+        return;
+      }
+      const customWords = genericApproveMatch[1]?.trim();
+      const latestId = Array.from(pendingApprovals.keys()).sort((a, b) => b - a)[0];
+      const pending = pendingApprovals.get(latestId)!;
+
+      const resolution = UserbotHandler.resolveCustomReplacement(pending.suggestedText, customWords);
+      if (!resolution.isSafe) {
+        const violationsList = resolution.violations.map((v) => `• <b>${v}</b>`).join('\n');
+        await client.sendMessage('me', {
+          message: `⚠️ <b>Cannot apply custom replacement!</b>\nThe resulting message contains high-risk patterns:\n${violationsList}\n\n💡 Please provide a safe replacement word.`,
+          parseMode: 'html',
+        });
+        return;
+      }
+
+      try {
+        await client.editMessage(pending.peerId, {
+          message: pending.messageId,
+          text: resolution.text,
+        });
+
+        await client.sendMessage('me', {
+          message: `✅ <b>Approved #${latestId}!</b> Message in <code>${pending.chatTitle}</code> updated to:\n\n<code>${resolution.text}</code>`,
+          parseMode: 'html',
+        });
+
+        pendingApprovals.delete(latestId);
+        if (pending.notificationMsgId) {
+          notificationToApprovalMap.delete(pending.notificationMsgId);
+        }
+        console.log(`[APPROVED] Successfully applied latest #${latestId} to "${pending.chatTitle}": "${resolution.text.slice(0, 40)}..."`);
+      } catch (err) {
+        console.error(`Failed to apply approval #${latestId}:`, err);
+        await client.sendMessage('me', {
+          message: `❌ Failed to update message in <code>${pending.chatTitle}</code>: ${err instanceof Error ? err.message : String(err)}`,
+          parseMode: 'html',
+        });
+      }
+      return;
+    }
+
+    // Check if user replied to a Saved Messages notification
+    const replyToId = (message.replyTo && (message.replyTo as any).replyToMsgId) || (message as any).replyToMsgId;
+    if (replyToId && notificationToApprovalMap.has(replyToId)) {
+      const approvalId = notificationToApprovalMap.get(replyToId)!;
+      const pending = pendingApprovals.get(approvalId);
+      if (pending) {
+        const lower = rawText.toLowerCase().trim();
+        const isAffirmative = ['ok', 'yes', 'y', 'send', 'apply', 'approve', '.approve', '/approve', 'dong y', 'đồng ý', 'duoc', 'được'].includes(lower);
+        const customWords = isAffirmative ? undefined : rawText;
+
+        const resolution = UserbotHandler.resolveCustomReplacement(pending.suggestedText, customWords);
+        if (!resolution.isSafe) {
+          const violationsList = resolution.violations.map((v) => `• <b>${v}</b>`).join('\n');
+          await client.sendMessage('me', {
+            message: `⚠️ <b>Cannot apply custom replacement!</b>\nThe resulting message contains high-risk patterns:\n${violationsList}\n\n💡 Please provide a safe replacement word.`,
+            parseMode: 'html',
+          });
+          return;
+        }
+
+        try {
+          await client.editMessage(pending.peerId, {
+            message: pending.messageId,
+            text: resolution.text,
+          });
+
+          await client.sendMessage('me', {
+            message: `✅ <b>Approved #${approvalId}!</b> Message in <code>${pending.chatTitle}</code> updated to:\n\n<code>${resolution.text}</code>`,
+            parseMode: 'html',
+          });
+
+          pendingApprovals.delete(approvalId);
+          notificationToApprovalMap.delete(replyToId);
+          console.log(`[REPLY-APPROVED] Updated message for #${approvalId} in "${pending.chatTitle}": "${resolution.text.slice(0, 40)}..."`);
+        } catch (err) {
+          console.error(`Failed to update message on reply for #${approvalId}:`, err);
+          await client.sendMessage('me', {
+            message: `❌ Failed to update message in <code>${pending.chatTitle}</code>: ${err instanceof Error ? err.message : String(err)}`,
+            parseMode: 'html',
+          });
+        }
+        return;
+      }
+    }
+
+    // Check for .pending command
+    if (rawText === '.pending' || rawText === '/pending') {
+      if (pendingApprovals.size === 0) {
+        await client.sendMessage('me', {
+          message: '📋 No pending redacted messages awaiting approval.',
+        });
+        return;
+      }
+      const list = Array.from(pendingApprovals.values())
+        .map((p) => `<b>[#${p.id}]</b> in <code>${p.chatTitle}</code>:\n<code>${p.suggestedText.slice(0, 80)}${p.suggestedText.length > 80 ? '...' : ''}</code>\n👉 /approve_${p.id}`)
+        .join('\n\n');
+      await client.sendMessage('me', {
+        message: `📋 <b>Pending Redacted Messages (${pendingApprovals.size}):</b>\n\n${list}`,
+        parseMode: 'html',
+      });
+      return;
+    }
+
     // Check if the message is a Forward
     const isForward = Boolean(message.fwdFrom || (message as any).forward);
 
-    const result = UserbotHandler.processOutgoingMessage(rawText, { isForward });
+    const result = UserbotHandler.processOutgoingMessage(rawText, { isForward, isEdit });
     if (!result.shouldHandle) return;
 
     // Case 1: Message is 100% safe -> Pass untouched!
     if (result.action === 'PASS_UNTOUCHED') {
-      console.log(`[PASS] Safe message (${isForward ? 'Forward' : 'Direct'}): "${rawText.slice(0, 45)}..."`);
+      console.log(`[PASS] Safe message (${isEdit ? 'Edited' : isForward ? 'Forward' : 'Direct'}): "${rawText.slice(0, 45)}..."`);
       return;
     }
 
@@ -162,7 +345,7 @@ async function startUserbot() {
 
         // 3. Format detailed alert report
         const flaggedList = result.analysis?.violations
-          .map((v) => `• <b>${v.title}</b>: <code>${v.matchedSnippet || 'Pattern matched'}</code>`)
+          .map((v) => `• <b>${v.title}</b>: <i>${v.reason}</i>`)
           .join('\n') || '• Privacy/Policy violation';
 
         const alertReport =
@@ -288,20 +471,82 @@ async function startUserbot() {
       return;
     }
 
-    // Case 5: Block Risky Content / Policy Violations (Automatic on any message)
+    // Case 5: Block Risky Content / Policy Violations -> Redact in Chat & Notify Saved Messages with 1-Click Approve
     if (result.action === 'BLOCK_AND_WARN') {
       try {
+        // 1. Immediately edit the message in destination chat to the clean redacted placeholder
         await client.editMessage(message.peerId, {
           message: message.id,
           text: result.processedText,
         });
-        console.warn(`[WARNING] Risky content blocked: "${result.originalQuery.slice(0, 40)}..."`);
+        console.warn(`[${isEdit ? 'EDIT-REDACTED' : 'REDACTED'}] Message in chat redacted safely: "${rawText.slice(0, 40)}..."`);
+
+        // 2. Resolve destination chat title
+        let chatTitle = 'Direct Chat';
+        try {
+          const entity: any = await client.getEntity(message.peerId);
+          chatTitle = entity.title || entity.username || `${entity.firstName || ''} ${entity.lastName || ''}`.trim() || 'Direct Chat';
+        } catch {
+          chatTitle = 'Direct Chat';
+        }
+
+        // 3. Register pending approval
+        const approvalId = nextApprovalId++;
+        const pending: PendingRedaction = {
+          id: approvalId,
+          peerId: message.peerId,
+          messageId: message.id,
+          chatTitle,
+          originalText: rawText,
+          suggestedText: result.cleanedText || rawText,
+          createdAt: Date.now(),
+        };
+        pendingApprovals.set(approvalId, pending);
+
+        // 4. Format private report with 1-click approve link
+        const flaggedList = result.analysis?.violations
+          .map((v) => `• <b>${v.title}</b>: <i>${v.reason}</i>`)
+          .join('\n') || '• Privacy/Policy violation';
+
+        const prefillCommand = encodeURIComponent(`/approve_${approvalId} `);
+        const prefillLink = me.username
+          ? `https://t.me/${me.username}?text=${prefillCommand}`
+          : `https://t.me/share/url?text=${prefillCommand}`;
+
+        const alertReport =
+          `🛡️ <b>[${isEdit ? 'EDITED MESSAGE' : 'MESSAGE'} REDACTED BY SAFETY SHIELD]</b>\n\n` +
+          `📍 <b>Destination Chat:</b> <code>${chatTitle}</code>\n` +
+          `⚠️ <b>Risk Score:</b> <code>${result.analysis?.riskScore}%</code>\n\n` +
+          `🛡️ <b>Violations Detected:</b>\n${flaggedList}\n\n` +
+          `💡 <b>Suggested Safe Version:</b>\n<code>${result.cleanedText}</code>\n\n` +
+          `👉 <b>Click to write in message box:</b>\n<a href="${prefillLink}">/approve_${approvalId}</a>\n\n` +
+          `<i>(Tip: You can click the link above, or just send <code>/approve</code>, or reply directly with <code>ok</code>)</i>`;
+
+        // 5. Send report to Saved Messages ('me')
+        const sentNotification = await client.sendMessage('me', {
+          message: alertReport,
+          parseMode: 'html',
+        });
+
+        if (sentNotification && sentNotification.id) {
+          pending.notificationMsgId = sentNotification.id;
+          notificationToApprovalMap.set(sentNotification.id, approvalId);
+        }
       } catch (err) {
-        console.error('Failed to update message with warning:', err);
+        console.error('Failed to redact message or send Saved Messages notification:', err);
       }
       return;
     }
+  }
+
+  // Register event handlers for both newly sent messages AND edited messages
+  client.addEventHandler(async (event: NewMessageEvent) => {
+    await onMessageEvent(event, false);
   }, new NewMessage({}));
+
+  client.addEventHandler(async (event: EditedMessageEvent) => {
+    await onMessageEvent(event, true);
+  }, new EditedMessage({}));
 }
 
 if (require.main === module) {

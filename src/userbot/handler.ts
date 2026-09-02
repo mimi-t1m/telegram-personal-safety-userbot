@@ -3,6 +3,7 @@ import { AnalysisResult } from '../policy/rules';
 
 export interface UserbotProcessOptions {
   isForward?: boolean;
+  isEdit?: boolean;
 }
 
 export interface UserbotProcessResult {
@@ -14,6 +15,7 @@ export interface UserbotProcessResult {
   cleanedText?: string;
   target?: string;
   isForward?: boolean;
+  isEdit?: boolean;
   analysis?: AnalysisResult;
 }
 
@@ -24,9 +26,11 @@ export class UserbotHandler {
    * Evaluates outgoing messages sent by the account.
    * Inspects all outgoing messages automatically (no prefix required).
    * Supports forwarded messages by issuing DELETE_AND_NOTIFY when violations are found.
+   * Supports edited messages by re-intercepting if a safe message is edited into a risky one.
    */
   static processOutgoingMessage(rawText: string, options?: UserbotProcessOptions): UserbotProcessResult {
     const isForward = options?.isForward ?? false;
+    const isEdit = options?.isEdit ?? false;
     const trimmed = rawText ? rawText.trim() : '';
     if (!trimmed) {
       return {
@@ -97,14 +101,12 @@ export class UserbotHandler {
       }
 
       // Risky content detected in .send
-      const flaggedSnippets = analysis.violations
-        .map((v) => (v.matchedSnippet ? `"${v.matchedSnippet}" (${v.title})` : v.title))
-        .join(', ');
+      const violationTitles = analysis.violations.map((v) => v.title).join(', ');
 
       const warningMessage =
         `⚠️ [RELAY BLOCKED - Risk: ${analysis.riskScore}%]\n` +
         `Target: "${target}"\n` +
-        `Your message contained high-risk patterns: ${flaggedSnippets}\n\n` +
+        `Violations: ${violationTitles}\n\n` +
         `💡 Suggested Safe Version:\n${analysis.cleanedText}`;
 
       return {
@@ -154,13 +156,11 @@ export class UserbotHandler {
 
     // If the message is a Forward, Telegram MTProto does not allow edits -> must DELETE & NOTIFY
     if (isForward) {
-      const flaggedSnippets = analysis.violations
-        .map((v) => (v.matchedSnippet ? `"${v.matchedSnippet}" (${v.title})` : v.title))
-        .join(', ');
+      const violationTitles = analysis.violations.map((v) => v.title).join(', ');
 
       const forwardAlertMessage =
         `🚨 [FORWARD INTERCEPTED & DELETED - Risk: ${analysis.riskScore}%]\n` +
-        `Violations: ${flaggedSnippets}\n\n` +
+        `Violations: ${violationTitles}\n\n` +
         `💡 Safe Version Available:\n${analysis.cleanedText}`;
 
       return {
@@ -175,25 +175,75 @@ export class UserbotHandler {
       };
     }
 
-    // Direct message violation detected -> block and overwrite with warning
-    const flaggedSnippets = analysis.violations
-      .map((v) => (v.matchedSnippet ? `"${v.matchedSnippet}" (${v.title})` : v.title))
-      .join(', ');
-
-    const warningMessage =
-      `⚠️ [SAFETY BLOCKED - Risk: ${analysis.riskScore}%]\n` +
-      `Your message contained high-risk patterns: ${flaggedSnippets}\n\n` +
-      `💡 Suggested Safe Version:\n${analysis.cleanedText}`;
+    // Direct message violation detected -> replace in chat with clean safe placeholder
+    const safeRedactedPlaceholder = '🛡️ [Message redacted by Safety Shield]';
 
     return {
       shouldHandle: true,
       isSafe: false,
       isForward: false,
+      isEdit,
       action: 'BLOCK_AND_WARN',
       originalQuery: query,
-      processedText: warningMessage,
+      processedText: safeRedactedPlaceholder,
       cleanedText: analysis.cleanedText,
       analysis,
+    };
+  }
+
+  /**
+   * Resolves custom replacement text provided during /approve command (e.g. /approve_1 newtest here).
+   * Supports multiple placeholders:
+   * - If separated by comma or pipe (e.g. /approve_1 word1, word2), replaces placeholders sequentially.
+   * - If single word provided, replaces all placeholders.
+   * Runs a safety policy scan to ensure the custom replacement is safe.
+   */
+  static resolveCustomReplacement(
+    suggestedText: string,
+    customWords?: string
+  ): { text: string; isSafe: boolean; violations: string[] } {
+    let targetText = suggestedText;
+    if (customWords && customWords.trim()) {
+      const trimmedCustom = customWords.trim();
+      const placeholderRegex = /\[[A-Z0-9_]+\]/g;
+
+      if (placeholderRegex.test(suggestedText)) {
+        // Check for double pipe (||), single pipe (|), or comma (,) separators for multiple placeholders
+        const delimiter = trimmedCustom.includes('||')
+          ? '||'
+          : trimmedCustom.includes('|')
+          ? '|'
+          : trimmedCustom.includes(',')
+          ? ','
+          : null;
+        if (delimiter) {
+          const parts = trimmedCustom.split(delimiter).map((p) => p.trim()).filter((p) => p.length > 0);
+          if (parts.length > 1) {
+            let index = 0;
+            targetText = suggestedText.replace(placeholderRegex, (match) => {
+              if (index < parts.length) {
+                const replacement = parts[index];
+                index++;
+                return replacement;
+              }
+              return match;
+            });
+          } else {
+            targetText = suggestedText.replace(placeholderRegex, trimmedCustom);
+          }
+        } else {
+          targetText = suggestedText.replace(placeholderRegex, trimmedCustom);
+        }
+      } else {
+        targetText = trimmedCustom;
+      }
+    }
+
+    const check = ContentAnalyzer.analyzeLocally(targetText);
+    return {
+      text: targetText,
+      isSafe: check.isSafe && check.violations.length === 0,
+      violations: check.violations.map((v) => v.title),
     };
   }
 }
